@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <title>Survey</title>
+</head>
+<body>
+    <h1>Survey Form:</h1>
+
+    <form action="/" method="post">
+          {{ form.hidden_tag() }}
+        <p>
+          {{ form.name.label }}
+          {{ form.name }}
+        </p>
+        <p>
+          {{ form.favorite_color.label }}
+          {{ form.favorite_color }}
+        </p>
+        <p>
+          {{ form.favorite_pet.label }}
+          {{ form.favorite_pet }}
+        </p>
+        <p>
+          {{ form.submit }}
+        </p>
+      </form>
+</body>
+</html>
