@@ -1,0 +1,85 @@
+- hosts: localhost
+  connection: local
+  gather_facts: True
+  tasks:
+  - name: Search for the latest Ubuntu 16.04 AMI
+    ec2_ami_find:
+      name: "ubuntu/images/hvm-ssd/ubuntu-xenial-16.04-amd64-server*"
+      owner: 099720109477
+      sort: name
+      sort_order: descending
+      sort_end: 1
+      region: us-east-1
+      virtualization_type: hvm
+    register: ami_find
+  - name: Create a new launch configuration
+    ec2_lc:
+      name: "survey-lc-{{ ansible_date_time.iso8601_basic_short }}"
+      image_id: "{{ ami_find.results[0].ami_id }}"
+      key_name: aws-amaciel2
+      security_groups: ['instance-survey']
+      instance_type: t2.micro
+      user_data_path: './cloud-init.yml'
+      instance_profile_name: "ec2SurveyInstances"
+      volumes:
+      - device_name: /dev/sda1
+        volume_size: 8
+        device_type: gp2
+        delete_on_termination: true
+  - name: Create/update Autoscaling Group
+    ec2_asg:
+      name: survey-asg
+      region: us-east-1
+      availability_zones: ["us-east-1a", "us-east-1b", "us-east-1c"]
+      vpc_zone_identifier: ["subnet-813d5ee5","subnet-90aa79bf","subnet-adda0ef0"]
+      health_check_period: 180
+      health_check_type: ELB
+      launch_config_name: "survey-lc-{{ ansible_date_time.iso8601_basic_short }}"
+      desired_capacity: 1
+      min_size: 1
+      max_size: 3
+      replace_all_instances: True
+      target_group_arns: ["arn:aws:elasticloadbalancing:us-east-1:916368926503:targetgroup/default/0be2653310e182e6"]
+    register: asg_result
+  - name: Configure scaling policy
+    ec2_scaling_policy:
+      region: us-east-1
+      name: "{{ item.name }}"
+      asg_name: "survey-asg"
+      state: present
+      adjustment_type: "ChangeInCapacity"
+      min_adjustment_step: 1
+      scaling_adjustment: "{{ item.scaling_adjustment }}"
+      cooldown: 300
+    with_items:
+    - name: "survey-asg-policy-scale-out"
+      scaling_adjustment: +1
+    - name: "survey-asg-policy-scale-in"
+      scaling_adjustment: -1
+    register: asg_policy_result
+  - name: Configure scaling policy alarms
+    ec2_metric_alarm:
+      region: us-east-1
+      name: "{{ item.name }}"
+      state: present
+      metric: "CPUUtilization"
+      namespace: "AWS/EC2"
+      statistic: Average
+      comparison: "{{ item.comparison }}"
+      threshold: "{{ item.threshold }}"
+      period: 300
+      evaluation_periods: 1
+      unit: "Percent"
+      dimensions: {'AutoScalingGroupName':'survey-asg'}
+      alarm_actions: "{{ item.alarm_actions }}"
+    with_items:
+    - name: "survey-asg-policy-scale-out-alarm"
+      comparison: ">="
+      threshold: 80.0
+      alarm_actions:
+        - "{{ asg_policy_result.results[0].arn }}"
+    - name: "survey-asg-policy-scale-in-alarm"
+      comparison: "<="
+      threshold: 20.0
+      alarm_actions:
+        - "{{ asg_policy_result.results[1].arn }}"
