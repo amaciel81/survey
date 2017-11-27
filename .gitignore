@@ -1,1 +1,3 @@
-secrets
+.idea
+*.pyc
+ansible/cloud-init-secret.yml
